@@ -332,6 +332,7 @@ select.field{appearance:auto}
         </label>
       </div>
     </div>
+    <button class="btn ghost" id="pdfOpen" type="button" style="width:100%">Gerar relatório em PDF deste período</button>
     <div class="sumline" id="hSum"></div>
     <div id="hList" class="group"></div>
   </section>
@@ -379,8 +380,17 @@ select.field{appearance:auto}
     <p class="foot" style="padding:0">O ControlGlicose não faz diagnóstico nem substitui consulta, exames de laboratório ou a orientação do seu médico. Sua meta pessoal pode ser diferente das faixas acima.</p>
   </div>
 </div>
+<div class="scrim" id="pdfScrim" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pTitle">
+    <div class="top"><h2 id="pTitle">Relatório em PDF</h2><button class="xbtn" id="pClose" type="button" aria-label="Fechar">&times;</button></div>
+    <p class="sub" id="pInfo" style="margin:0"></p>
+    <div class="stack" id="pActions" style="gap:10px"></div>
+    <p class="foot" style="padding:0">O relatório usa o período e os filtros escolhidos na aba Histórico: resumo, gráfico de evolução, médias e a lista completa das medições.</p>
+  </div>
+</div>
 <div class="toast" id="toast" role="status" hidden></div>
 
+<script src="pdf-lib.min.js"></script>
 <script>
 (function(){
 'use strict';
@@ -604,15 +614,21 @@ function dayTitle(t){
   if(k===dkey(n-86400000))return'Ontem';
   return new Date(t).toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'});
 }
+function getFiltered(){
+  const [t0,t1]=range(hf.per,hf.from,hf.to,readings);
+  const f=readings.filter(r=>r.t>=t0&&r.t<=t1&&(hf.ctx==='all'||(r.ctx||'none')===hf.ctx)&&(hf.band==='all'||grp(r.v)===hf.band));
+  return{f,t0,t1};
+}
 function renderHistory(){
   const list=$('#hList');
   if(!readings.length){
+    $('#pdfOpen').disabled=true;
     $('#hSum').innerHTML='';
     list.innerHTML='<div class="card empty"><h3>Nenhuma medição ainda</h3><p>Registre sua primeira glicemia ou veja como o app fica com dados de exemplo.</p><div class="acts"><button class="btn small" data-go="registrar" type="button">Registrar agora</button><button class="btn ghost" data-ex="1" type="button">Ver com exemplos</button></div></div>';
     return;
   }
-  let [t0,t1]=range(hf.per,hf.from,hf.to,readings);
-  let f=readings.filter(r=>r.t>=t0&&r.t<=t1&&(hf.ctx==='all'||(r.ctx||'none')===hf.ctx)&&(hf.band==='all'||grp(r.v)===hf.band));
+  const f=getFiltered().f;
+  $('#pdfOpen').disabled=!f.length;
   if(!f.length){
     $('#hSum').innerHTML='';
     list.innerHTML='<div class="card empty"><h3>Nada com esses filtros</h3><p>Tente outro período, momento ou faixa.</p><div class="acts"><button class="btn ghost" id="hReset" type="button">Limpar filtros</button></div></div>';
@@ -830,6 +846,203 @@ document.addEventListener('click',e=>{
     setTimeout(()=>{if(t.isConnected){t.classList.remove('confirm');t.textContent='Excluir'}},3000);
   }
 });
+
+/* ---------- relatório em PDF ---------- */
+const wa=s=>String(s).replace(/[^\x20-\x7E -ÿ]/g,c=>({'–':'-','—':'-','’':"'",'‘':"'",'“':'"','”':'"','•':'-'}[c]||''));
+const fdate=t=>{const d=new Date(t);return pad(d.getDate())+'/'+pad(d.getMonth()+1)+'/'+d.getFullYear()};
+const RGB={vlow:[142,20,66],low:[194,37,92],ok:[13,138,114],high:[184,110,0],vhigh:[154,61,0]};
+const INK=[16,33,43],MUT=[86,104,116],LNE=[217,226,232],ACC=[29,68,201];
+function pdfScope(){
+  const G=getFiltered();let a=G.t0;const b=Math.min(G.t1,Date.now());
+  if(!a)a=sod(new Date(Math.min(...G.f.map(r=>r.t))));
+  const fl=[];
+  if(hf.ctx!=='all')fl.push('Momento: '+CL[hf.ctx]);
+  if(hf.band!=='all')fl.push('Faixa: '+{low:'Baixa (abaixo de 70)',ok:'Na meta (70 a 180)',high:'Alta (acima de 180)'}[hf.band]);
+  return{f:G.f.slice().sort((x,y)=>x.t-y.t),a,b,fl};
+}
+async function buildPdf(sc){
+  const {PDFDocument,StandardFonts,rgb}=PDFLib;
+  const doc=await PDFDocument.create();
+  doc.setTitle('Relatório de glicemia');doc.setAuthor('ControlGlicose');
+  const F=await doc.embedFont(StandardFonts.Helvetica),B=await doc.embedFont(StandardFonts.HelveticaBold);
+  const W=595.28,H=841.89,M=40,CW=W-2*M;
+  const C=c=>rgb(c[0]/255,c[1]/255,c[2]/255);
+  const pages=[];let pg;
+  const newPage=()=>{pg=doc.addPage([W,H]);pages.push(pg)};
+  const txt=(s,x,y,o={})=>{
+    const size=o.size||10,f=o.bold?B:F,t=wa(s);let xx=x;
+    if(o.align==='right')xx=x-f.widthOfTextAtSize(t,size);else if(o.align==='center')xx=x-f.widthOfTextAtSize(t,size)/2;
+    pg.drawText(t,{x:xx,y:H-y,size,font:f,color:C(o.color||INK)});
+  };
+  const rect=(x,y,w,h,col,o={})=>pg.drawRectangle({x,y:H-y-h,width:w,height:h,color:col?C(col):undefined,opacity:o.op,borderColor:o.bc?C(o.bc):undefined,borderWidth:o.bw||0});
+  const line=(x1,y1,x2,y2,col,th=1)=>pg.drawLine({start:{x:x1,y:H-y1},end:{x:x2,y:H-y2},thickness:th,color:C(col)});
+  const dot=(x,y,r,col,ring)=>pg.drawCircle({x,y:H-y,size:r,color:C(col),borderColor:rgb(1,1,1),borderWidth:ring?0.8:0});
+  const fit=(s,size,maxW)=>{let t=wa(s);if(F.widthOfTextAtSize(t,size)<=maxW)return t;while(t.length>1&&F.widthOfTextAtSize(t+'...',size)>maxW)t=t.slice(0,-1);return t+'...'};
+  const ensure=h=>{if(y+h>770){newPage();y=50}};
+  const s=stats(sc.f),days=new Set(sc.f.map(r=>dkey(r.t))).size;
+  const plural=(n,a,b)=>n+' '+(n===1?a:b);
+  let y;
+
+  /* página 1: cabeçalho e resumo */
+  newPage();
+  rect(0,0,W,74,ACC);
+  txt('Relatório de glicemia',M,44,{size:22,bold:true,color:[255,255,255]});
+  txt('ControlGlicose',W-M,44,{size:11,align:'right',color:[255,255,255]});
+  y=102;
+  const info=[];
+  if(shownName())info.push(['Nome',shownName()]);
+  info.push(['Período',fdate(sc.a)+' a '+fdate(sc.b)]);
+  if(sc.fl.length)info.push(['Filtros',sc.fl.join('; ')]);
+  info.push(['Gerado em',fdate(Date.now())+' às '+hhmm(Date.now())]);
+  info.forEach(([k,v])=>{txt(k,M,y,{size:9.5,color:MUT});txt(fit(v,10.5,CW-70),M+66,y,{size:10.5,bold:true});y+=16});
+  if(sc.f.some(r=>r.ex)){txt('Atenção: este relatório inclui medições de exemplo.',M,y,{size:9.5,bold:true,color:RGB.low});y+=16}
+  y+=8;
+  const tw=(CW-30)/4,th=62;
+  [['MÉDIA',nf(s.mean),'mg/dL'],['NA META',nf(s.tir)+'%','70 a 180 mg/dL'],['VARIAÇÃO (CV)',nf(s.cv)+'%',s.cv<=36?'estável (até 36%)':'acima de 36%'],['MÍN. E MÁX.',s.min+' - '+s.max,'mg/dL']].forEach((t,i)=>{
+    const x=M+i*(tw+10);
+    rect(x,y,tw,th,null,{bc:LNE,bw:1});
+    txt(t[0],x+10,y+16,{size:8,bold:true,color:MUT});
+    txt(t[1],x+10,y+39,{size:20,bold:true});
+    txt(t[2],x+10,y+54,{size:8.5,color:MUT});
+  });
+  y+=th+18;
+  txt(plural(s.n,'medição','medições')+' em '+plural(days,'dia','dias')+'.',M,y,{size:10});
+  if(s.n>=8)txt('HbA1c estimada pela média do período: '+nf(s.a1c,1)+'%',W-M,y,{size:10,align:'right'});
+  y+=22;
+
+  /* distribuição por faixa */
+  txt('Distribuição por faixa',M,y,{size:12,bold:true});y+=10;
+  let bx=M;
+  BK.forEach(k=>{const w=CW*s.c[k]/s.n;if(w>0){rect(bx,y,Math.max(0,w-(w>2?1.5:0)),14,RGB[k]);bx+=w}});
+  y+=14+16;
+  BK.forEach((k,i)=>{
+    const x=M+i*(CW/5);
+    rect(x,y-7,7,7,RGB[k]);
+    txt(BL[k],x+11,y,{size:8.5,bold:true});
+    txt(s.c[k]+' ('+nf(s.c[k]/s.n*100)+'%)',x+11,y+11,{size:8.5,color:MUT});
+  });
+  y+=34;
+
+  /* gráfico de evolução */
+  txt('Evolução das medições',M,y,{size:12,bold:true});y+=12;
+  {
+    const t0=sc.a,t1=sod(new Date(sc.b))+86400000-1,L=30,R=6,top=y+6,ch=150,cw=CW-L-R;
+    const vs=sc.f.map(r=>r.v),y0=Math.max(0,Math.floor((Math.min(...vs,70)-10)/10)*10),y1=Math.ceil((Math.max(...vs,180)+10)/10)*10;
+    const X=t=>M+L+(t-t0)/(t1-t0)*cw,Y=v=>top+(1-(v-y0)/(y1-y0))*ch;
+    rect(M+L,Y(180),cw,Y(70)-Y(180),RGB.ok,{op:0.12});
+    const span=y1-y0,step=[10,20,25,50,100].find(q=>span/q<=6)||100;
+    for(let v=Math.ceil(y0/step)*step;v<=y1;v+=step){line(M+L,Y(v),M+L+cw,Y(v),LNE,0.6);txt(String(v),M+L-5,Y(v)+3,{size:7.5,align:'right',color:MUT})}
+    const nd=Math.round((t1-t0+1)/86400000),b0=new Date(t0);
+    if(nd<=1){for(let h=0;h<=24;h+=4)txt(h+'h',X(t0+h*3600000),top+ch+12,{size:7.5,align:h===0?'left':h===24?'right':'center',color:MUT})}
+    else{const sd=nd<=10?1:Math.ceil(nd/9);for(let i=0;i<nd;i+=sd){const tt=new Date(b0.getFullYear(),b0.getMonth(),b0.getDate()+i,12).getTime();txt(ddmm(tt),X(tt),top+ch+12,{size:7.5,align:'center',color:MUT})}}
+    txt('meta 70-180',M+L+4,Y(180)+9,{size:7,color:RGB.ok});
+    for(let i=1;i<sc.f.length;i++)line(X(sc.f[i-1].t),Y(sc.f[i-1].v),X(sc.f[i].t),Y(sc.f[i].v),[150,170,230],0.6);
+    const r=sc.f.length>150?1.8:sc.f.length>60?2.4:3;
+    sc.f.forEach(p=>dot(X(p.t),Y(p.v),r,RGB[band(p.v)],true));
+    y=top+ch+38;
+  }
+
+  /* médias */
+  const grpRows=[];
+  CTX.slice(1).forEach(c=>{const a=sc.f.filter(r=>r.ctx===c[0]);if(a.length)grpRows.push([c[1],a.length,avg(a)])});
+  [['Madrugada (0h-6h)',0,6],['Manhã (6h-12h)',6,12],['Tarde (12h-18h)',12,18],['Noite (18h-24h)',18,24]].forEach(p=>{
+    const a=sc.f.filter(r=>{const h=new Date(r.t).getHours();return h>=p[1]&&h<p[2]});if(a.length)grpRows.push([p[0],a.length,avg(a)]);
+  });
+  if(grpRows.length){
+    ensure(40+grpRows.length*16);
+    txt('Médias por momento e por parte do dia',M,y,{size:12,bold:true});y+=8;
+    grpRows.forEach((g,i)=>{
+      if(i%2===0)rect(M,y,CW,16,[244,248,250]);
+      txt(g[0],M+6,y+11.5,{size:9});
+      txt(plural(g[1],'medição','medições'),M+250,y+11.5,{size:9,color:MUT});
+      dot(M+360,y+8,3,RGB[band(g[2])],false);
+      txt(nf(g[2])+' mg/dL',M+368,y+11.5,{size:9,bold:true});
+      y+=16;
+    });
+    y+=14;
+  }
+
+  /* observações */
+  const notes=[nf(s.tir)+'% das medições ficaram na meta de 70 a 180 mg/dL.'];
+  const lowL=sc.f.filter(r=>r.v<70).sort((a,b)=>a.v-b.v),hiL=sc.f.filter(r=>r.v>180).sort((a,b)=>b.v-a.v);
+  if(lowL.length)notes.push(plural(lowL.length,'leitura abaixo','leituras abaixo')+' de 70 mg/dL. A menor foi '+lowL[0].v+' em '+fdate(lowL[0].t)+' às '+hhmm(lowL[0].t)+'.');
+  else notes.push('Nenhuma leitura abaixo de 70 mg/dL.');
+  if(hiL.length)notes.push(plural(hiL.length,'leitura acima','leituras acima')+' de 180 mg/dL. A maior foi '+hiL[0].v+' em '+fdate(hiL[0].t)+' às '+hhmm(hiL[0].t)+'.');
+  else notes.push('Nenhuma leitura acima de 180 mg/dL.');
+  ensure(30+notes.length*15);
+  txt('Resumo do período',M,y,{size:12,bold:true});y+=16;
+  notes.forEach(n=>{txt('- '+n,M+4,y,{size:9.5});y+=15});
+
+  /* tabela de medições */
+  const cols=[['Data',64],['Hora',42],['Glicemia',66],['Faixa',88],['Momento',92]];
+  cols.push(['Observação',CW-cols.reduce((a,c)=>a+c[1],0)]);
+  const RH=17;
+  const head=()=>{rect(M,y,CW,RH,[227,234,252]);let x=M;cols.forEach(c=>{txt(c[0],x+6,y+12,{size:8.5,bold:true});x+=c[1]});y+=RH};
+  newPage();y=52;
+  txt('Medições registradas',M,y,{size:14,bold:true});
+  txt(plural(sc.f.length,'medição','medições')+' em ordem cronológica',W-M,y,{size:9.5,align:'right',color:MUT});
+  y+=14;head();
+  sc.f.forEach((r,i)=>{
+    if(y+RH>785){newPage();y=52;head()}
+    if(i%2)rect(M,y,CW,RH,[244,248,250]);
+    let x=M;
+    const cell=(t,o={})=>{txt(t,x+6,y+12,o);};
+    cell(fdate(r.t),{size:9});x+=cols[0][1];
+    cell(hhmm(r.t),{size:9});x+=cols[1][1];
+    cell(r.v+' mg/dL',{size:9,bold:true});x+=cols[2][1];
+    dot(x+9,y+8.5,3,RGB[band(r.v)],false);txt(BL[band(r.v)],x+16,y+12,{size:9});x+=cols[3][1];
+    cell(r.ctx&&r.ctx!=='none'?CL[r.ctx]:'-',{size:9});x+=cols[4][1];
+    cell(fit((r.note||'')+(r.ex?(r.note?' ':'')+'(exemplo)':''),8.5,cols[5][1]-10)||'-',{size:8.5,color:MUT});
+    y+=RH;
+  });
+
+  /* rodapé em todas as páginas */
+  pages.forEach((p,i)=>{
+    pg=p;
+    line(M,H-38,W-M,H-38,LNE,0.6);
+    txt('Registro pessoal para acompanhamento. Não substitui avaliação médica nem exame de laboratório.',M,H-27,{size:7.5,color:MUT});
+    txt('ControlGlicose - gerado em '+fdate(Date.now()),M,H-16,{size:7.5,color:MUT});
+    txt('Página '+(i+1)+' de '+pages.length,W-M,H-16,{size:7.5,align:'right',color:MUT});
+  });
+  return doc.save();
+}
+let pBlob=null,pUrl=null,pName='';
+function resetPActions(){$('#pActions').innerHTML='<button class="btn" id="pGen" type="button">Gerar relatório</button>'}
+function openPdfDialog(){
+  const sc=pdfScope();
+  $('#pInfo').textContent=fdate(sc.a)+' a '+fdate(sc.b)+' · '+sc.f.length+(sc.f.length===1?' medição':' medições')+(sc.fl.length?' · '+sc.fl.join(', '):'');
+  resetPActions();$('#pdfScrim').hidden=false;$('#pGen').focus();
+}
+async function genPdf(){
+  const btn=$('#pGen');btn.disabled=true;btn.textContent='Gerando…';
+  try{
+    if(!window.PDFLib)throw new Error('lib');
+    const sc=pdfScope();if(!sc.f.length)throw new Error('vazio');
+    const bytes=await buildPdf(sc);
+    pBlob=new Blob([bytes],{type:'application/pdf'});
+    if(pUrl)URL.revokeObjectURL(pUrl);pUrl=URL.createObjectURL(pBlob);
+    pName='glicemia-'+dkey(sc.a)+'-a-'+dkey(sc.b)+'.pdf';
+    $('#pActions').innerHTML='<p class="hint" style="margin:0"><b>Relatório pronto</b> ('+Math.max(1,Math.round(pBlob.size/1024))+' KB). Toque abaixo para salvar em Arquivos, enviar ou imprimir.</p><button class="btn" id="pShare" type="button">Salvar ou compartilhar</button><button class="btn ghost" id="pView" type="button" style="width:100%">Abrir PDF</button><button class="link" id="pAgain" type="button" style="align-self:flex-start">Gerar de novo</button>';
+  }catch(e){
+    $('#pActions').innerHTML='<p class="hint err" style="margin:0">Não foi possível gerar o PDF. Tente de novo.</p><button class="btn" id="pGen" type="button">Tentar de novo</button>';
+  }
+}
+async function sharePdf(){
+  const file=new File([pBlob],pName,{type:'application/pdf'});
+  try{if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:'Relatório de glicemia'});return}}catch(e){if(e&&e.name==='AbortError')return}
+  try{if(window.claude&&claude.use){const dl=await claude.use('downloads');if(dl){await dl.save({filename:pName,data:pBlob});return}}}catch(e){}
+  const a=document.createElement('a');a.href=pUrl;a.download=pName;document.body.appendChild(a);a.click();a.remove();
+}
+$('#pdfOpen').addEventListener('click',openPdfDialog);
+$('#pdfScrim').addEventListener('click',e=>{
+  const id=e.target.id;
+  if(id==='pdfScrim'||id==='pClose')$('#pdfScrim').hidden=true;
+  else if(id==='pGen')genPdf();
+  else if(id==='pShare')sharePdf();
+  else if(id==='pAgain')resetPActions();
+  else if(id==='pView'){if(!window.open(pUrl,'_blank'))toast('Use "Salvar ou compartilhar" para abrir o PDF.')}
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#pdfScrim').hidden)$('#pdfScrim').hidden=true});
 
 /* ---------- menu ---------- */
 const shownName=()=>userName||profName||'';
