@@ -1,10 +1,10 @@
-// Cole aqui a configuração do seu projeto Firebase (Configurações do projeto > Seus apps > Web).
-// Enquanto estiver com "COLE_AQUI", o app guarda as medições só neste aparelho.
-window.FIREBASE_CONFIG = {
-  apiKey: "COLE_AQUI",
-  authDomain: "COLE_AQUI",
-  projectId: "COLE_AQUI",
-  storageBucket: "COLE_AQUI",
-  messagingSenderId: "COLE_AQUI",
-  appId: "COLE_AQUI"
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyDaMXcpypcKor8ipOhXUk41FzwFr25ckLw",
+  authDomain: "glicose-8591b.firebaseapp.com",
+  projectId: "glicose-8591b",
+  storageBucket: "glicose-8591b.firebasestorage.app",
+  messagingSenderId: "491200995137",
+  appId: "1:491200995137:web:537548d466ebd8dfe0cbc0",
+  measurementId: "G-BT40YRYMT2"
 };
