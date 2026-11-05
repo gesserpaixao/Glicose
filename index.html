@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#eef3f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c1418" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Glicose">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>
+:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+[hidden]{display:none!important}
+img{max-width:100%}
+</style>
+<title>ControlGlicose</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: app de uma coluna (máx. 720px), abas fixas no topo, cartões só onde há ação ou gráfico.
+   Cores de faixa seguem a escala clínica: <54, 54-69, 70-180, 181-250, >250 mg/dL. */
+:root{
+  --bg:#eef3f6; --surface:#ffffff; --surface-2:#f4f8fa; --ink:#10212b; --muted:#566874; --line:#d9e2e8;
+  --accent:#1d44c9; --on-accent:#ffffff; --accent-soft:#e3eafc;
+  --vlow:#8e1442; --low:#c2255c; --ok:#0d8a72; --high:#b86e00; --vhigh:#9a3d00;
+  --ok-soft:rgba(13,138,114,.11); --danger:#b3261e;
+  --font-display:"Bricolage Grotesque","Figtree",system-ui,sans-serif;
+  --font-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0c1418; --surface:#142026; --surface-2:#192830; --ink:#e7f0f4; --muted:#90a4af; --line:#25363f;
+    --accent:#86a6ff; --on-accent:#0b1534; --accent-soft:#1c2c58;
+    --vlow:#ff5c8f; --low:#ff7aa5; --ok:#3ccfae; --high:#ffb340; --vhigh:#ff8a3d;
+    --ok-soft:rgba(60,207,174,.12); --danger:#ff8a80; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0c1418; --surface:#142026; --surface-2:#192830; --ink:#e7f0f4; --muted:#90a4af; --line:#25363f;
+  --accent:#86a6ff; --on-accent:#0b1534; --accent-soft:#1c2c58;
+  --vlow:#ff5c8f; --low:#ff7aa5; --ok:#3ccfae; --high:#ffb340; --vhigh:#ff8a3d;
+  --ok-soft:rgba(60,207,174,.12); --danger:#ff8a80; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--ink); font:15px/1.45 var(--font-body);
+  margin:0; padding-block:14px 40px;
+  padding-left:max(16px,env(safe-area-inset-left,0px)); padding-right:max(16px,env(safe-area-inset-right,0px));
+}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
+.app{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+
+/* cabeçalho */
+.head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 2px}
+.brand{display:flex;align-items:center;gap:10px;font:700 21px var(--font-display);letter-spacing:-.01em}
+.brand svg{width:26px;height:26px;flex:none}
+.sync{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;text-align:right}
+.sync i{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
+.sync.on i{background:var(--ok)}
+
+/* abas */
+.tabs{position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:20;display:grid;grid-template-columns:repeat(3,1fr);gap:4px;
+  background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px}
+.tabs button{border:0;background:transparent;padding:10px 6px;border-radius:9px;font-weight:600;color:var(--muted);cursor:pointer;min-width:0}
+.tabs button[aria-selected="true"]{background:var(--accent);color:var(--on-accent)}
+.tabs button:not([aria-selected="true"]):hover{background:var(--surface-2);color:var(--ink)}
+.panel[hidden],.scrim[hidden],.custom[hidden],.cross[hidden],.hi[hidden],.tip[hidden],.toast[hidden],.notice[hidden]{display:none}
+.panel{display:flex;flex-direction:column;gap:14px}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;min-width:0}
+.card h2{margin:0 0 4px;font:700 17px var(--font-display);letter-spacing:-.005em}
+.card .sub{margin:0 0 12px;color:var(--muted);font-size:13px}
+.lbl{display:block;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.stack{display:flex;flex-direction:column;gap:18px}
+
+/* entrada de glicose */
+.reading{display:flex;align-items:baseline;gap:10px;border-bottom:2px solid var(--line);padding-bottom:4px}
+.reading:focus-within{border-color:var(--accent)}
+.reading input{flex:1;min-width:0;border:0;background:transparent;outline:none;font:800 clamp(56px,17vw,88px)/1 var(--font-display);letter-spacing:-.03em;padding:0;color:var(--ink)}
+.reading input::placeholder{color:var(--line)}
+.reading .unit{font:600 16px var(--font-body);color:var(--muted)}
+.state{display:flex;align-items:center;gap:10px;min-height:28px;margin-top:12px;flex-wrap:wrap}
+.hint{font-size:13px;color:var(--muted)}
+.hint.err{color:var(--danger)}
+.scale{position:relative;margin-top:16px;padding-bottom:20px}
+.scale .track{display:flex;gap:2px;height:8px}
+.scale .track span{border-radius:3px;opacity:.9}
+.scale .mk{position:absolute;top:-6px;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid var(--ink);transform:translateX(-50%);transition:left .15s}
+.scale .tk{position:absolute;top:14px;font-size:11px;color:var(--muted);transform:translateX(-50%)}
+.s-vlow{background:var(--vlow)}.s-low{background:var(--low)}.s-ok{background:var(--ok)}.s-high{background:var(--high)}.s-vhigh{background:var(--vhigh)}
+
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:3px 10px 3px 8px;border-radius:99px;white-space:nowrap;
+  background:var(--surface-2);border:1px solid var(--line)}
+.pill::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.pill.vlow{color:var(--vlow)}.pill.low{color:var(--low)}.pill.ok{color:var(--ok)}.pill.high{color:var(--high)}.pill.vhigh{color:var(--vhigh)}
+.pill span{color:var(--ink)}
+
+/* seletores */
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.seg label,.chips label{position:relative;display:block;cursor:pointer;min-width:0}
+.seg input,.chips input{position:absolute;opacity:0;inset:0;cursor:pointer;margin:0}
+.seg span{display:flex;flex-direction:column;gap:2px;padding:11px 14px;border:1.5px solid var(--line);border-radius:11px;background:var(--surface)}
+.seg b{font-weight:700}.seg small{color:var(--muted);font-size:12.5px}
+.seg input:checked+span{border-color:var(--accent);background:var(--accent-soft)}
+.seg input:focus-visible+span,.chips input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips span{display:block;padding:7px 13px;border:1.5px solid var(--line);border-radius:99px;background:var(--surface);font-size:14px;font-weight:500;white-space:nowrap}
+.chips input:checked+span{border-color:var(--accent);background:var(--accent-soft);font-weight:700}
+.custom{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.field{width:100%;min-width:0;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
+.field:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+select.field{appearance:auto}
+.btn{border:0;border-radius:11px;padding:14px 18px;font-weight:700;font-size:16px;cursor:pointer;background:var(--accent);color:var(--on-accent);width:100%}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--accent);border:1.5px solid var(--accent);width:auto;padding:9px 14px;font-size:14px}
+.btn.small{width:auto;padding:8px 13px;font-size:14px}
+.link{background:none;border:0;padding:0;color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+
+/* resumo do dia + lista */
+.mini{display:flex;flex-direction:column}
+.row{display:grid;grid-template-columns:54px auto 1fr auto;gap:4px 12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row .tm{color:var(--muted);font-size:13.5px}
+.row .vl{font:700 24px var(--font-display);letter-spacing:-.01em}
+.row .vl small{font:500 12px var(--font-body);color:var(--muted);margin-left:3px}
+.row .meta{min-width:0;font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.row .meta b{color:var(--ink);font-weight:600}
+.del{border:1px solid transparent;background:transparent;color:var(--muted);border-radius:8px;padding:6px 9px;cursor:pointer;font-size:13px;font-weight:600}
+.del:hover{background:var(--surface-2);color:var(--ink)}
+.del.confirm{color:var(--danger);border-color:var(--danger)}
+.day{display:flex;justify-content:space-between;align-items:baseline;margin:6px 2px 0;font:700 14px var(--font-display);text-transform:capitalize}
+.day span{font:500 12.5px var(--font-body);color:var(--muted);text-transform:none}
+.group{display:flex;flex-direction:column;gap:6px}
+.group .card{padding:4px 16px}
+.empty{text-align:center;padding:30px 12px;color:var(--muted)}
+.empty h3{margin:0 0 6px;font:700 17px var(--font-display);color:var(--ink)}
+.empty p{margin:0 0 14px}
+.empty .acts{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+
+/* filtros */
+.filters{display:flex;flex-direction:column;gap:12px}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.fgrid label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);min-width:0}
+.fgrid .field{text-transform:none;letter-spacing:0;font-weight:500;font-size:15px}
+.sumline{display:flex;gap:6px 16px;flex-wrap:wrap;color:var(--muted);font-size:13.5px;padding:0 2px}
+.sumline b{color:var(--ink)}
+.notice{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:var(--accent-soft);border-radius:12px;padding:10px 14px;font-size:13.5px}
+
+/* gráficos */
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+@media(min-width:620px){.tiles{grid-template-columns:repeat(4,1fr)}}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0}
+.tile .k{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.tile .v{font:800 30px/1.15 var(--font-display);letter-spacing:-.02em;margin-top:4px}
+.tile .v small{font:500 13px var(--font-body);color:var(--muted);letter-spacing:0}
+.tile .n{font-size:12.5px;color:var(--muted);margin-top:2px}
+.chart{position:relative;width:100%}
+.chart svg{display:block;width:100%;height:auto;touch-action:pan-y;overflow:visible}
+.tx{fill:var(--muted);font:11px var(--font-body)}
+.grid{stroke:var(--line);stroke-width:1}
+.tband{fill:var(--ok-soft)}
+.tlab{fill:var(--ok);font:600 10.5px var(--font-body)}
+.ln{fill:none;stroke:var(--accent);stroke-width:1.5;opacity:.45;stroke-linejoin:round}
+.ln.strong{opacity:.85;stroke-width:2}
+.rng{stroke:var(--muted);stroke-width:2;stroke-linecap:round;opacity:.55}
+.dot{stroke:var(--surface);stroke-width:2}
+.d-vlow{fill:var(--vlow)}.d-low{fill:var(--low)}.d-ok{fill:var(--ok)}.d-high{fill:var(--high)}.d-vhigh{fill:var(--vhigh)}.d-acc{fill:var(--accent)}
+.cross{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 3}
+.hi{fill:none;stroke:var(--ink);stroke-width:2}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);border-radius:9px;padding:8px 11px;font-size:12.5px;line-height:1.35;white-space:nowrap;z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.2)}
+.tip b{font:700 15px var(--font-display)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--muted);margin-top:10px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:9px;height:9px;border-radius:50%;display:inline-block}
+.dist{display:flex;gap:2px;height:22px;border-radius:7px;overflow:hidden}
+.dist span{display:block;min-width:0}
+.dl{display:flex;flex-direction:column;margin-top:12px}
+.dl div{display:grid;grid-template-columns:14px 1fr auto auto;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.dl div:first-child{border-top:0}
+.dl i{width:10px;height:10px;border-radius:3px}
+.dl em{font-style:normal;color:var(--muted);font-size:13px}
+.bars{display:flex;flex-direction:column;gap:10px}
+.br{display:grid;grid-template-columns:minmax(84px,120px) 1fr 52px;gap:10px;align-items:center;font-size:14px}
+.br .nm{min-width:0;line-height:1.2}
+.br .nm small{display:block;color:var(--muted);font-size:11.5px}
+.br .tr{position:relative;height:16px;background:var(--surface-2);border-radius:5px;overflow:hidden}
+.br .tr .zone{position:absolute;top:0;bottom:0;background:var(--ok-soft);border-left:1px dashed var(--ok);border-right:1px dashed var(--ok)}
+.br .tr .fill{position:absolute;left:0;top:3px;bottom:3px;border-radius:0 4px 4px 0}
+.br .val{font-weight:700;text-align:right}
+.insights{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
+.insights li{display:grid;grid-template-columns:12px 1fr;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
+.insights li:first-child{border-top:0;padding-top:2px}
+.insights i{width:10px;height:10px;border-radius:50%;margin-top:6px;background:var(--muted)}
+.insights .good i{background:var(--ok)}.insights .warn i{background:var(--high)}.insights .alert i{background:var(--low)}
+.insights b{font-weight:700}
+.foot{font-size:12.5px;color:var(--muted);padding:0 2px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 20px);background:var(--ink);color:var(--bg);padding:11px 18px;border-radius:12px;font-weight:600;font-size:14px;z-index:50;max-width:calc(100% - 32px)}
+.hr{display:flex;align-items:center;gap:12px}
+.gear{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none}
+.gear:hover{background:var(--surface-2)}
+.gear svg{width:20px;height:20px}
+.scrim{position:fixed;inset:0;z-index:40;background:rgba(5,12,16,.55);display:flex;align-items:flex-start;justify-content:center;
+  padding:calc(env(safe-area-inset-top,0px) + 16px) max(16px,env(safe-area-inset-right,0px)) 16px max(16px,env(safe-area-inset-left,0px))}
+.sheet{width:min(520px,100%);max-height:100%;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:20px}
+.sheet .top{display:flex;justify-content:space-between;align-items:center}
+.sheet h2{margin:0;font:700 20px var(--font-display)}
+.sheet h3{margin:0 0 8px;font:700 12px var(--font-body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.xbtn{width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:20px;line-height:1;color:var(--ink)}
+.who{display:flex;align-items:center;gap:14px}
+.av{width:52px;height:52px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font:700 19px var(--font-display);flex:none}
+.who .f{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.nmrow{display:flex;gap:8px}
+.nmrow .field{flex:1}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin:0;font-size:14px}
+.kv dt{color:var(--muted)}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.a1c{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.a1c .big{font:800 44px/1 var(--font-display);letter-spacing:-.02em}
+.a1c .cat{font-weight:700}
+.sc2{position:relative;margin:14px 0 4px;padding-bottom:20px}
+.sc2 .track{display:flex;gap:2px;height:8px}
+.sc2 .track span{border-radius:3px}
+.sc2 .mk{position:absolute;top:-6px;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid var(--ink);transform:translateX(-50%)}
+.sc2 .tk{position:absolute;top:14px;font-size:11px;color:var(--muted);transform:translateX(-50%)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media(max-width:420px){.row{grid-template-columns:48px auto 1fr auto;gap:4px 8px}.br{grid-template-columns:90px 1fr 46px}}
+</style>
+</head>
+<body>
+
+
+<div class="app">
+  <header class="head">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3C16 3 6 14.2 6 20.5a10 10 0 0 0 20 0C26 14.2 16 3 16 3Z" fill="var(--accent)"/><path d="M10.5 21.5h3l2-4.5 2.5 8 2-3.5h2" fill="none" stroke="var(--on-accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      ControlGlicose
+    </div>
+    <div class="hr">
+      <div class="sync" id="sync" role="status"><i></i><span id="syncTxt">Salvo neste aparelho</span></div>
+      <button class="gear" id="gear" type="button" aria-label="Abrir menu" aria-haspopup="dialog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Seções">
+    <button role="tab" id="t-registrar" data-tab="registrar" aria-selected="true" aria-controls="p-registrar">Registrar</button>
+    <button role="tab" id="t-historico" data-tab="historico" aria-selected="false" aria-controls="p-historico">Histórico</button>
+    <button role="tab" id="t-graficos" data-tab="graficos" aria-selected="false" aria-controls="p-graficos">Gráficos</button>
+  </nav>
+
+  <div class="notice" id="exNotice" hidden>
+    <span>Há medições de exemplo carregadas. Elas não são suas.</span>
+    <button class="btn ghost small" id="exClear" type="button">Apagar exemplos</button>
+  </div>
+
+  <!-- REGISTRAR -->
+  <section class="panel" id="p-registrar" role="tabpanel" aria-labelledby="t-registrar">
+    <form class="card stack" id="form" autocomplete="off">
+      <div>
+        <label class="lbl" for="v">Glicemia</label>
+        <div class="reading">
+          <input id="v" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" placeholder="000" aria-describedby="vHint">
+          <span class="unit">mg/dL</span>
+        </div>
+        <div class="state"><span id="vPill"></span><span class="hint" id="vHint">Digite o valor do aparelho.</span></div>
+        <div class="scale" aria-hidden="true">
+          <div class="track" id="scaleTrack"></div>
+          <div class="mk" id="mk" style="left:-10%"></div>
+          <span class="tk" style="left:10.7%">70</span><span class="tk" style="left:50%">180</span><span class="tk" style="left:75%">250</span>
+        </div>
+      </div>
+
+      <div>
+        <span class="lbl" id="whenLbl">Quando foi a medição?</span>
+        <div class="seg" role="radiogroup" aria-labelledby="whenLbl">
+          <label><input type="radio" name="when" value="now" checked><span><b>Agora</b><small id="nowTxt">—</small></span></label>
+          <label><input type="radio" name="when" value="custom"><span><b>Outro horário</b><small>Escolher data e hora</small></span></label>
+        </div>
+        <div class="custom" id="custom" hidden>
+          <label><span class="lbl">Data</span><input class="field" id="cd" type="date"></label>
+          <label><span class="lbl">Hora</span><input class="field" id="ct" type="time"></label>
+        </div>
+        <div class="hint err" id="whenErr" hidden style="margin-top:8px"></div>
+      </div>
+
+      <div>
+        <span class="lbl" id="ctxLbl">Momento</span>
+        <div class="chips" id="ctxChips" role="radiogroup" aria-labelledby="ctxLbl"></div>
+      </div>
+
+      <div>
+        <label class="lbl" for="note">Observação (opcional)</label>
+        <input class="field" id="note" type="text" maxlength="120" placeholder="Ex.: após caminhada, jantar com massa">
+      </div>
+
+      <button class="btn" id="save" type="submit" disabled>Salvar medição</button>
+    </form>
+
+    <div class="card" id="recent"></div>
+    <p class="foot">Faixas usadas: abaixo de 70 baixa, 70 a 180 na meta, acima de 180 alta. Sua meta pessoal pode ser diferente. Combine com seu médico.</p>
+  </section>
+
+  <!-- HISTÓRICO -->
+  <section class="panel" id="p-historico" role="tabpanel" aria-labelledby="t-historico" hidden>
+    <div class="card filters" id="filters">
+      <div>
+        <span class="lbl" id="perLbl">Período</span>
+        <div class="chips" id="hPer" role="radiogroup" aria-labelledby="perLbl"></div>
+      </div>
+      <div class="custom" id="hCustom" hidden style="margin-top:0">
+        <label><span class="lbl">De</span><input class="field" id="hFrom" type="date"></label>
+        <label><span class="lbl">Até</span><input class="field" id="hTo" type="date"></label>
+      </div>
+      <div class="fgrid">
+        <label>Momento
+          <select class="field" id="hCtx"></select>
+        </label>
+        <label>Faixa
+          <select class="field" id="hBand">
+            <option value="all">Todas</option><option value="low">Baixa (&lt; 70)</option><option value="ok">Na meta (70–180)</option><option value="high">Alta (&gt; 180)</option>
+          </select>
+        </label>
+        <label>Ordem
+          <select class="field" id="hOrd"><option value="desc">Mais recentes</option><option value="asc">Mais antigas</option><option value="hi">Maior valor</option><option value="lo">Menor valor</option></select>
+        </label>
+      </div>
+    </div>
+    <div class="sumline" id="hSum"></div>
+    <div id="hList" class="group"></div>
+  </section>
+
+  <!-- GRÁFICOS -->
+  <section class="panel" id="p-graficos" role="tabpanel" aria-labelledby="t-graficos" hidden>
+    <div class="chips" id="gPer" role="radiogroup" aria-label="Período dos gráficos"></div>
+    <div id="gBody" class="panel"></div>
+  </section>
+</div>
+<div class="scrim" id="scrim" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <div class="top"><h2 id="mTitle">Menu</h2><button class="xbtn" id="mClose" type="button" aria-label="Fechar menu">&times;</button></div>
+    <div>
+      <h3>Seu perfil</h3>
+      <div class="who">
+        <div class="av" id="av" aria-hidden="true">?</div>
+        <div class="f">
+          <label class="lbl" for="nm" style="margin:0">Nome completo</label>
+          <div class="nmrow"><input class="field" id="nm" type="text" maxlength="80" autocomplete="name" placeholder="Digite seu nome completo"><button class="btn small" id="nmSave" type="button">Salvar</button></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3>Sobre o app</h3>
+      <dl class="kv">
+        <dt>App</dt><dd>ControlGlicose</dd>
+        <dt>Versão</dt><dd>1.1</dd>
+        <dt>Para que serve</dt><dd>Registrar glicemias, consultar o histórico com filtros e acompanhar gráficos e análises, incluindo a HbA1c estimada.</dd>
+        <dt>Unidade</dt><dd>mg/dL</dd>
+        <dt>Medições</dt><dd id="mCount">0</dd>
+        <dt>Onde ficam os dados</dt><dd id="mWhere">Neste aparelho.</dd>
+      </dl>
+    </div>
+    <div>
+      <h3>Cópia de segurança</h3>
+      <p class="hint" style="margin:0 0 8px">Copie seus dados e guarde em um lugar seguro, como o app Notas. Para restaurar ou trazer dados de outro aparelho, cole o texto abaixo.</p>
+      <textarea class="field" id="bkBox" rows="3" placeholder="Os dados copiados aparecem aqui. Cole aqui para restaurar." style="font-size:12px"></textarea>
+      <div class="nmrow" style="margin-top:8px"><button class="btn ghost small" id="bkCopy" type="button">Copiar dados</button><button class="btn ghost small" id="bkRestore" type="button">Restaurar</button></div>
+    </div>
+    <div>
+      <h3>Faixas de referência</h3>
+      <div class="dl" style="margin-top:0" id="mBands"></div>
+    </div>
+    <p class="foot" style="padding:0">O ControlGlicose não faz diagnóstico nem substitui consulta, exames de laboratório ou a orientação do seu médico. Sua meta pessoal pode ser diferente das faixas acima.</p>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+(function(){
+'use strict';
+/* ---------- utilidades ---------- */
+const $=s=>document.querySelector(s);
+const pad=n=>String(n).padStart(2,'0');
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sod=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();
+const dkey=t=>{const d=new Date(t);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())};
+const hhmm=t=>{const d=new Date(t);return pad(d.getHours())+':'+pad(d.getMinutes())};
+const ddmm=t=>{const d=new Date(t);return pad(d.getDate())+'/'+pad(d.getMonth()+1)};
+const dshort=t=>new Date(t).toLocaleDateString('pt-BR',{day:'numeric',month:'short'});
+const nf=(n,d=0)=>n.toLocaleString('pt-BR',{maximumFractionDigits:d,minimumFractionDigits:d});
+const uid=()=>'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+
+const CTX=[['none','Não informado'],['fasting','Jejum'],['pre','Antes de comer'],['post','Depois de comer'],['bed','Antes de dormir'],['night','Madrugada']];
+const CL=Object.fromEntries(CTX);
+const BL={vlow:'Muito baixa',low:'Baixa',ok:'Na meta',high:'Alta',vhigh:'Muito alta'};
+const BR={vlow:'abaixo de 54',low:'54 a 69',ok:'70 a 180',high:'181 a 250',vhigh:'acima de 250'};
+const BK=['vlow','low','ok','high','vhigh'];
+const band=v=>v<54?'vlow':v<70?'low':v<=180?'ok':v<=250?'high':'vhigh';
+const grp=v=>v<70?'low':v<=180?'ok':'high';
+const pill=v=>'<span class="pill '+band(v)+'"><span>'+BL[band(v)]+'</span></span>';
+
+/* ---------- dados ---------- */
+let readings=[];
+const LS='controlglicose.v1';
+function loadLocal(){try{const a=JSON.parse(localStorage.getItem(LS)||'[]');return Array.isArray(a)?a:[]}catch(e){return[]}}
+function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(readings))}catch(e){}}
+let col=null, migrated=false;
+const LSN='controlglicose.nome';
+let userName='',profName='';
+try{userName=localStorage.getItem(LSN)||''}catch(e){}
+const body=r=>({t:r.t,v:r.v,ctx:r.ctx||'none',note:r.note||'',ex:!!r.ex});
+function setSync(on,txt){$('#sync').classList.toggle('on',on);$('#syncTxt').textContent=txt}
+function dbErr(){toast('Não foi possível sincronizar. A medição ficou salva neste aparelho.')}
+
+async function initDb(){
+  try{
+    if(!(window.claude&&claude.use))return;
+    const [db,user]=await Promise.all([claude.use('db'),claude.use('user')]);
+    if(!db||!user)return;
+    try{const me=await user.me();profName=me.name||''}catch(e){}
+    const id=await user.id(); if(!id)return;
+    col=db.collection('data/users/'+id);
+    setSync(false,'Sincronizando…');
+    col.onSnapshot(snap=>{
+      const def=!snap.metadata.fromCache;
+      if(snap.empty&&!def)return;
+      const prof=snap.docs.find(d=>d.id==='profile'),rs=snap.docs.filter(d=>d.id!=='profile');
+      if(prof&&prof.data()&&prof.data().name){userName=String(prof.data().name);try{localStorage.setItem(LSN,userName)}catch(e){}}
+      if(!rs.length&&def&&!migrated&&readings.length){
+        migrated=true; (async()=>{for(const r of readings){try{await col.doc(r.id).set(body(r))}catch(e){break}}})();
+        setSync(true,'Salvo na sua conta');return;
+      }
+      if(def)migrated=true;
+      readings=rs.map(d=>({id:d.id,...d.data()}));
+      saveLocal(); render();
+      if(def)setSync(true,'Salvo na sua conta');
+    },()=>setSync(false,'Salvo neste aparelho'));
+  }catch(e){}
+}
+function addReading(r){readings.push(r);saveLocal();render();if(col)col.doc(r.id).set(body(r)).catch(dbErr)}
+function removeReading(id){readings=readings.filter(r=>r.id!==id);saveLocal();render();if(col)col.doc(id).delete().catch(dbErr)}
+
+function makeSamples(){
+  const out=[];let s=11;const rnd=()=>{s=(s*16807)%2147483647;return s/2147483647};
+  const now=new Date(),nowT=Date.now();
+  const slots=[['fasting',7,5,92,28],['pre',12,15,98,34],['post',14,20,142,62],['pre',19,0,100,32],['post',21,15,138,66],['bed',22,40,112,42]];
+  for(let i=20;i>=0;i--){
+    slots.forEach((sl,j)=>{
+      if(rnd()<0.2&&j!==0)return;
+      const t=new Date(now.getFullYear(),now.getMonth(),now.getDate()-i,sl[1],sl[2]+Math.round((rnd()-.5)*30)).getTime();
+      if(t>nowT)return;
+      let v=sl[3]+rnd()*sl[4];
+      if(sl[0]==='pre'&&rnd()<0.07)v=58+rnd()*8;
+      out.push({id:'ex'+i+'-'+j,t,v:Math.round(v),ctx:sl[0],note:'',ex:true});
+    });
+  }
+  return out;
+}
+async function loadSamples(){
+  const ex=makeSamples();readings=readings.concat(ex);saveLocal();render();
+  if(col){for(const r of ex){try{await col.doc(r.id).set(body(r))}catch(e){dbErr();break}}}
+}
+async function clearSamples(){
+  const ids=readings.filter(r=>r.ex).map(r=>r.id);
+  readings=readings.filter(r=>!r.ex);saveLocal();render();
+  if(col){for(const id of ids){try{await col.doc(id).delete()}catch(e){dbErr();break}}}
+}
+
+/* ---------- toast ---------- */
+let toastT;
+function toast(msg){const el=$('#toast');el.textContent=msg;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>{el.hidden=true},3200)}
+
+/* ---------- abas ---------- */
+const TABS=['registrar','historico','graficos'];
+let tab='registrar';
+function setTab(n,fromHash){
+  if(!TABS.includes(n))n='registrar';
+  tab=n;
+  TABS.forEach(k=>{
+    const sel=k===n;$('#t-'+k).setAttribute('aria-selected',sel);$('#t-'+k).tabIndex=sel?0:-1;$('#p-'+k).hidden=!sel;
+  });
+  if(!fromHash&&location.hash!=='#'+n)location.hash=n;
+  render();
+}
+document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
+document.querySelector('.tabs').addEventListener('keydown',e=>{
+  const i=TABS.indexOf(tab);let j=-1;
+  if(e.key==='ArrowRight')j=(i+1)%3;else if(e.key==='ArrowLeft')j=(i+2)%3;else return;
+  setTab(TABS[j]);$('#t-'+TABS[j]).focus();
+});
+window.addEventListener('hashchange',()=>setTab(location.hash.slice(1),true));
+
+/* ---------- registrar ---------- */
+$('#scaleTrack').innerHTML=[['vlow',14],['low',16],['ok',110],['high',70],['vhigh',70]].map(x=>'<span class="s-'+x[0]+'" style="flex:'+x[1]+'"></span>').join('');
+$('#ctxChips').innerHTML=CTX.map((c,i)=>'<label><input type="radio" name="ctx" value="'+c[0]+'"'+(i===0?' checked':'')+'><span>'+c[1]+'</span></label>').join('');
+const vEl=$('#v');
+function curVal(){const n=parseInt(vEl.value,10);return isNaN(n)?null:n}
+function validVal(n){return n!==null&&n>=20&&n<=600}
+function onVal(){
+  vEl.value=vEl.value.replace(/\D/g,'').slice(0,3);
+  const n=curVal();
+  if(n===null){$('#vPill').innerHTML='';$('#vHint').textContent='Digite o valor do aparelho.';$('#vHint').className='hint';$('#mk').style.left='-10%'}
+  else if(!validVal(n)){$('#vPill').innerHTML='';$('#vHint').textContent='Valor fora do possível. Use entre 20 e 600 mg/dL.';$('#vHint').className='hint err';$('#mk').style.left='-10%'}
+  else{
+    $('#vPill').innerHTML=pill(n);
+    $('#vHint').className='hint';
+    $('#vHint').textContent=n<54?'Muito baixa. Trate a hipoglicemia agora.':n<70?'Abaixo de 70. Atenção.':n<=180?'Dentro da meta geral.':n<=250?'Acima da meta.':'Muito alta. Siga a orientação do seu médico.';
+    $('#mk').style.left=((Math.min(320,Math.max(40,n))-40)/280*100)+'%';
+  }
+  $('#save').disabled=!validVal(n);
+}
+vEl.addEventListener('input',onVal);
+
+const whenVal=()=>document.querySelector('input[name=when]:checked').value;
+function nowLabel(){
+  const d=new Date();
+  $('#nowTxt').textContent='Hoje, '+d.toLocaleDateString('pt-BR',{day:'numeric',month:'short'})+' · '+hhmm(d.getTime());
+}
+function fillCustom(){
+  const d=new Date();$('#cd').value=dkey(d.getTime());$('#ct').value=hhmm(d.getTime());$('#cd').max=dkey(d.getTime());
+}
+document.querySelectorAll('input[name=when]').forEach(r=>r.addEventListener('change',()=>{
+  const c=whenVal()==='custom';$('#custom').hidden=!c;$('#whenErr').hidden=true;if(c)fillCustom();
+}));
+nowLabel();setInterval(nowLabel,15000);fillCustom();
+
+$('#form').addEventListener('submit',e=>{
+  e.preventDefault();
+  const n=curVal();if(!validVal(n))return;
+  let t=Date.now();
+  if(whenVal()==='custom'){
+    const dv=$('#cd').value,tv=$('#ct').value;
+    if(!dv||!tv){showWhenErr('Escolha a data e a hora da medição.');return}
+    const [y,m,d]=dv.split('-').map(Number),[h,mi]=tv.split(':').map(Number);
+    t=new Date(y,m-1,d,h,mi).getTime();
+    if(isNaN(t)){showWhenErr('Data ou hora inválida.');return}
+    if(t>Date.now()+60000){showWhenErr('Esse horário ainda não chegou. Escolha um horário que já passou.');return}
+  }
+  const ctx=document.querySelector('input[name=ctx]:checked').value;
+  addReading({id:uid(),t,v:n,ctx,note:$('#note').value.trim(),ex:false});
+  toast('Salvo: '+n+' mg/dL · '+BL[band(n)]);
+  vEl.value='';$('#note').value='';onVal();
+  document.querySelector('input[name=when][value=now]').checked=true;$('#custom').hidden=true;
+  document.querySelector('input[name=ctx][value=none]').checked=true;
+  vEl.focus();
+});
+function showWhenErr(m){const e=$('#whenErr');e.textContent=m;e.hidden=false}
+
+function rowHTML(r,withDate){
+  return '<div class="row" data-id="'+esc(r.id)+'">'+
+    '<div class="tm num">'+(withDate?ddmm(r.t)+'<br>':'')+hhmm(r.t)+'</div>'+
+    '<div class="vl num">'+r.v+'<small>mg/dL</small></div>'+
+    '<div class="meta">'+pill(r.v)+'<br>'+(r.ctx&&r.ctx!=='none'?'<b>'+CL[r.ctx]+'</b>':'')+(r.note?(r.ctx&&r.ctx!=='none'?' · ':'')+esc(r.note):'')+(r.ex?' <em>(exemplo)</em>':'')+'</div>'+
+    '<button type="button" class="del" aria-label="Excluir medição de '+r.v+' mg/dL às '+hhmm(r.t)+'">Excluir</button></div>';
+}
+function renderRecent(){
+  const now=Date.now(),today=readings.filter(r=>sod(new Date(r.t))===sod(new Date(now)));
+  const last=readings.slice().sort((a,b)=>b.t-a.t).slice(0,3);
+  let h='<h2>Últimas medições</h2>';
+  if(!last.length){h+='<p class="sub" style="margin:0">Nada registrado ainda. Sua primeira medição aparece aqui.</p>';$('#recent').innerHTML=h;return}
+  if(today.length){const m=today.reduce((a,r)=>a+r.v,0)/today.length;h+='<p class="sub">Hoje: '+today.length+(today.length>1?' medições':' medição')+', média de '+nf(m)+' mg/dL.</p>'}
+  else h+='<p class="sub">Nenhuma medição hoje ainda.</p>';
+  h+='<div class="mini">'+last.map(r=>rowHTML(r,true)).join('')+'</div>';
+  $('#recent').innerHTML=h;
+}
+
+/* ---------- histórico ---------- */
+const hf={per:'7',ctx:'all',band:'all',ord:'desc',from:'',to:''};
+const PERS=[['today','Hoje'],['7','7 dias'],['30','30 dias'],['90','90 dias'],['all','Tudo'],['custom','Datas']];
+function chipsHTML(name,list,sel){return list.map(p=>'<label><input type="radio" name="'+name+'" value="'+p[0]+'"'+(p[0]===sel?' checked':'')+'><span>'+p[1]+'</span></label>').join('')}
+$('#hPer').innerHTML=chipsHTML('hper',PERS,hf.per);
+$('#hCtx').innerHTML='<option value="all">Todos</option>'+CTX.map(c=>'<option value="'+c[0]+'">'+c[1]+'</option>').join('');
+document.querySelectorAll('input[name=hper]').forEach(i=>i.addEventListener('change',()=>{hf.per=i.value;$('#hCustom').hidden=hf.per!=='custom';render()}));
+$('#hCtx').addEventListener('change',e=>{hf.ctx=e.target.value;render()});
+$('#hBand').addEventListener('change',e=>{hf.band=e.target.value;render()});
+$('#hOrd').addEventListener('change',e=>{hf.ord=e.target.value;render()});
+$('#hFrom').addEventListener('change',e=>{hf.from=e.target.value;render()});
+$('#hTo').addEventListener('change',e=>{hf.to=e.target.value;render()});
+
+function range(per,from,to,list){
+  const now=new Date(),today=sod(now),end=today+86400000-1;
+  const dayN=n=>new Date(now.getFullYear(),now.getMonth(),now.getDate()-(n-1)).getTime();
+  if(per==='today')return[today,end];
+  if(per==='all'||per==='custom'){
+    let t0=list.length?sod(new Date(Math.min(...list.map(r=>r.t)))):today,t1=end;
+    if(per==='custom'){
+      if(from){const [y,m,d]=from.split('-').map(Number);t0=new Date(y,m-1,d).getTime()}
+      else t0=0;
+      if(to){const [y,m,d]=to.split('-').map(Number);t1=new Date(y,m-1,d).getTime()+86400000-1}
+    }
+    return[t0,t1];
+  }
+  return[dayN(+per),end];
+}
+function dayTitle(t){
+  const k=dkey(t),n=Date.now();
+  if(k===dkey(n))return'Hoje';
+  if(k===dkey(n-86400000))return'Ontem';
+  return new Date(t).toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'});
+}
+function renderHistory(){
+  const list=$('#hList');
+  if(!readings.length){
+    $('#hSum').innerHTML='';
+    list.innerHTML='<div class="card empty"><h3>Nenhuma medição ainda</h3><p>Registre sua primeira glicemia ou veja como o app fica com dados de exemplo.</p><div class="acts"><button class="btn small" data-go="registrar" type="button">Registrar agora</button><button class="btn ghost" data-ex="1" type="button">Ver com exemplos</button></div></div>';
+    return;
+  }
+  let [t0,t1]=range(hf.per,hf.from,hf.to,readings);
+  let f=readings.filter(r=>r.t>=t0&&r.t<=t1&&(hf.ctx==='all'||(r.ctx||'none')===hf.ctx)&&(hf.band==='all'||grp(r.v)===hf.band));
+  if(!f.length){
+    $('#hSum').innerHTML='';
+    list.innerHTML='<div class="card empty"><h3>Nada com esses filtros</h3><p>Tente outro período, momento ou faixa.</p><div class="acts"><button class="btn ghost" id="hReset" type="button">Limpar filtros</button></div></div>';
+    return;
+  }
+  const s=stats(f);
+  $('#hSum').innerHTML='<span><b>'+f.length+'</b> '+(f.length>1?'medições':'medição')+'</span><span>média <b>'+nf(s.mean)+'</b> mg/dL</span><span><b>'+nf(s.tir)+'%</b> na meta</span><span>mín <b>'+s.min+'</b> · máx <b>'+s.max+'</b></span>';
+  if(hf.ord==='hi'||hf.ord==='lo'){
+    f.sort((a,b)=>hf.ord==='hi'?b.v-a.v:a.v-b.v);
+    list.innerHTML='<div class="card">'+f.map(r=>rowHTML(r,true)).join('')+'</div>';
+    return;
+  }
+  f.sort((a,b)=>hf.ord==='asc'?a.t-b.t:b.t-a.t);
+  const days=[];const m=new Map();
+  f.forEach(r=>{const k=dkey(r.t);if(!m.has(k)){m.set(k,[]);days.push(k)}m.get(k).push(r)});
+  list.innerHTML=days.map(k=>{
+    const rs=m.get(k),ss=stats(rs);
+    return '<div class="day">'+dayTitle(rs[0].t)+'<span class="num">'+rs.length+' · média '+nf(ss.mean)+'</span></div><div class="card">'+rs.map(r=>rowHTML(r,false)).join('')+'</div>';
+  }).join('');
+}
+
+/* ---------- estatística ---------- */
+function stats(a){
+  const n=a.length;if(!n)return null;
+  const vs=a.map(r=>r.v),mean=vs.reduce((x,y)=>x+y,0)/n;
+  const sd=Math.sqrt(vs.reduce((x,y)=>x+(y-mean)*(y-mean),0)/n);
+  const c={vlow:0,low:0,ok:0,high:0,vhigh:0};vs.forEach(v=>c[band(v)]++);
+  return{n,mean,sd,cv:mean?sd/mean*100:0,min:Math.min(...vs),max:Math.max(...vs),c,tir:c.ok/n*100,a1c:(mean+46.7)/28.7};
+}
+const avg=a=>a.length?a.reduce((x,r)=>x+r.v,0)/a.length:null;
+
+/* ---------- gráficos ---------- */
+let gper='14';
+const GP=[['7','7 dias'],['14','14 dias'],['30','30 dias'],['90','90 dias'],['all','Tudo']];
+$('#gPer').innerHTML=chipsHTML('gper',GP,gper);
+document.querySelectorAll('input[name=gper]').forEach(i=>i.addEventListener('change',()=>{gper=i.value;render()}));
+
+function timeChart(host,o){
+  const W=Math.max(300,Math.floor(host.clientWidth)||300),H=250,m={l:38,r:10,t:10,b:28};
+  const iw=W-m.l-m.r,ih=H-m.t-m.b;
+  const ys=o.points.map(p=>p.y).concat((o.ranges||[]).flatMap(r=>[r.lo,r.hi]));
+  const y0=Math.max(0,Math.floor((Math.min(...ys,70)-10)/10)*10),y1=Math.ceil((Math.max(...ys,180)+10)/10)*10;
+  const X=t=>m.l+(t-o.t0)/(o.t1-o.t0)*iw,Y=v=>m.t+(1-(v-y0)/(y1-y0))*ih;
+  const span=y1-y0,step=[10,20,25,50,100].find(s=>span/s<=6)||100;
+  let g='';
+  for(let v=Math.ceil(y0/step)*step;v<=y1;v+=step)g+='<line class="grid" x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+Y(v)+'" y2="'+Y(v)+'"/><text class="tx" x="'+(m.l-6)+'" y="'+(Y(v)+4)+'" text-anchor="end">'+v+'</text>';
+  const days=Math.round((o.t1-o.t0+1)/86400000);
+  if(days<=1){for(let h=0;h<=24;h+=4){const tt=o.t0+h*3600000;g+='<text class="tx" x="'+X(tt)+'" y="'+(H-8)+'" text-anchor="'+(h===0?'start':h===24?'end':'middle')+'">'+h+'h</text>'}}
+  else{
+    const sd=days<=8?1:Math.ceil(days/7),b=new Date(o.t0);
+    for(let i=0;i<days;i+=sd){const tt=new Date(b.getFullYear(),b.getMonth(),b.getDate()+i,12).getTime();g+='<text class="tx" x="'+X(tt)+'" y="'+(H-8)+'" text-anchor="middle">'+ddmm(tt)+'</text>'}
+  }
+  const bandSvg='<rect class="tband" x="'+m.l+'" y="'+Y(180)+'" width="'+iw+'" height="'+(Y(70)-Y(180))+'"/><text class="tlab" x="'+(m.l+6)+'" y="'+(Y(180)+13)+'">meta 70–180</text>';
+  const pts=o.points.slice().sort((a,b)=>a.x-b.x);
+  let ln=pts.length>1?'<polyline class="ln'+(o.strong?' strong':'')+'" points="'+pts.map(p=>X(p.x).toFixed(1)+','+Y(p.y).toFixed(1)).join(' ')+'"/>':'';
+  const rg=(o.ranges||[]).map(r=>'<line class="rng" x1="'+X(r.x)+'" x2="'+X(r.x)+'" y1="'+Y(r.hi)+'" y2="'+Y(r.lo)+'"/>').join('');
+  const rad=pts.length>150?3:pts.length>60?4:5;
+  const dots=pts.map(p=>'<circle class="dot '+p.cls+'" cx="'+X(p.x).toFixed(1)+'" cy="'+Y(p.y).toFixed(1)+'" r="'+rad+'"/>').join('');
+  host.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'" role="img" aria-label="'+esc(o.label)+'">'+g+bandSvg+rg+ln+dots+
+    '<line class="cross" id="cx" y1="'+m.t+'" y2="'+(H-m.b)+'" hidden/><circle class="hi" id="hi" r="'+(rad+3)+'" hidden/><rect id="ov" x="'+m.l+'" y="'+m.t+'" width="'+iw+'" height="'+ih+'" fill="transparent"/></svg><div class="tip" hidden></div>';
+  const svg=host.querySelector('svg'),tip=host.querySelector('.tip'),cx=svg.querySelector('#cx'),hi=svg.querySelector('#hi');
+  function hover(e){
+    const r=svg.getBoundingClientRect(),px=(e.clientX-r.left)*(W/r.width);
+    let best=null,bd=1e9;
+    pts.forEach(p=>{const d=Math.abs(X(p.x)-px);if(d<bd){bd=d;best=p}});
+    if(!best)return;
+    const bx=X(best.x),by=Y(best.y);
+    cx.setAttribute('x1',bx);cx.setAttribute('x2',bx);cx.removeAttribute('hidden');
+    hi.setAttribute('cx',bx);hi.setAttribute('cy',by);hi.removeAttribute('hidden');
+    tip.innerHTML=best.tip;tip.hidden=false;
+    const tw=tip.offsetWidth,th=tip.offsetHeight;
+    let left=bx-tw/2;left=Math.max(4,Math.min(W-tw-4,left));
+    let top=by-th-12;if(top<0)top=by+14;
+    tip.style.left=left+'px';tip.style.top=top+'px';
+  }
+  const ov=svg.querySelector('#ov');
+  ov.addEventListener('pointermove',hover);ov.addEventListener('pointerdown',hover);
+  ov.addEventListener('pointerleave',()=>{tip.hidden=true;cx.setAttribute('hidden','');hi.setAttribute('hidden','')});
+}
+
+function barRows(rows){
+  const mx=Math.max(220,Math.max(...rows.map(r=>r.avg||0))*1.1);
+  const z0=70/mx*100,zw=(180-70)/mx*100;
+  return '<div class="bars">'+rows.map(r=>'<div class="br"><div class="nm">'+r.label+'<small>'+(r.n?r.n+(r.n>1?' medições':' medição'):'sem dados')+'</small></div><div class="tr"><div class="zone" style="left:'+z0+'%;width:'+zw+'%"></div>'+(r.n?'<div class="fill s-'+band(r.avg)+'" style="width:'+(r.avg/mx*100)+'%"></div>':'')+'</div><div class="val num">'+(r.n?nf(r.avg):'—')+'</div></div>').join('')+'</div>';
+}
+
+function insights(all,list,s){
+  const out=[],push=(tone,t)=>out.push({tone,t});
+  if(s.tir>=70)push('good','<b>'+nf(s.tir)+'% das medições</b> ficaram na meta de 70 a 180 mg/dL. A referência geral é acima de 70%.');
+  else push('warn','<b>'+nf(s.tir)+'% das medições</b> ficaram na meta de 70 a 180 mg/dL. A referência geral é acima de 70%.');
+  const lowN=s.c.vlow+s.c.low;
+  if(lowN){
+    const low=list.filter(r=>r.v<70).sort((a,b)=>a.v-b.v)[0];
+    push(s.c.vlow?'alert':'warn','<b>'+lowN+(lowN>1?' leituras abaixo':' leitura abaixo')+' de 70 mg/dL</b>. A menor foi '+low.v+' em '+dshort(low.t)+' às '+hhmm(low.t)+'. Se acontecer com frequência, fale com seu médico.');
+  }else push('good','Nenhuma leitura abaixo de 70 mg/dL no período.');
+  const hiN=s.c.high+s.c.vhigh;
+  if(hiN){
+    const pct=hiN/s.n*100;
+    push(s.c.vhigh||pct>30?'warn':'info',hiN+(hiN>1?' leituras':' leitura')+' acima de 180 mg/dL ('+nf(pct)+'%)'+(s.c.vhigh?', sendo '+s.c.vhigh+' acima de 250':'')+'.');
+  }
+  const fa=list.filter(r=>r.ctx==='fasting');
+  if(fa.length>=2){
+    const m=avg(fa);
+    push(m<=99?'good':m<=130?'info':'warn','<b>Jejum:</b> média de '+nf(m)+' mg/dL em '+fa.length+' medições. '+(m<=99?'Está na faixa de 70 a 99.':m<=130?'Fica acima de 99, mas dentro de 80 a 130, meta usual de quem tem diabetes.':'Está acima de 130.'));
+  }
+  const po=list.filter(r=>r.ctx==='post');
+  if(po.length>=2){
+    const m=avg(po),over=po.filter(r=>r.v>180).length;
+    push(m<140?'good':m<=180?'info':'warn','<b>Depois de comer:</b> média de '+nf(m)+' mg/dL'+(over?', com '+over+(over>1?' leituras':' leitura')+' acima de 180':'')+'. '+(m<140?'Abaixo de 140.':m<=180?'Abaixo de 180, meta usual de quem tem diabetes.':'Acima de 180.'));
+  }
+  const P=[['Madrugada',0,6],['Manhã',6,12],['Tarde',12,18],['Noite',18,24]].map(p=>{const a=list.filter(r=>{const h=new Date(r.t).getHours();return h>=p[1]&&h<p[2]});return{n:p[0],a:avg(a),c:a.length}}).filter(p=>p.c>=2);
+  if(P.length>=2){
+    const hi=P.reduce((x,y)=>y.a>x.a?y:x),lo=P.reduce((x,y)=>y.a<x.a?y:x);
+    if(hi.a-lo.a>=15)push('info','<b>'+hi.n+'</b> tem as leituras mais altas (média '+nf(hi.a)+'), e <b>'+lo.n.toLowerCase()+'</b> as mais baixas ('+nf(lo.a)+').');
+  }
+  const d7=Date.now()-7*86400000,d14=Date.now()-14*86400000;
+  const a=all.filter(r=>r.t>=d7),b=all.filter(r=>r.t>=d14&&r.t<d7);
+  if(a.length>=3&&b.length>=3){
+    const diff=avg(a)-avg(b);
+    if(Math.abs(diff)<10)push('info','<b>Tendência estável:</b> a média dos últimos 7 dias ('+nf(avg(a))+') é parecida com a dos 7 dias anteriores ('+nf(avg(b))+').');
+    else push(diff>0?'warn':'good','<b>Média '+(diff>0?'subiu':'caiu')+' '+nf(Math.abs(diff))+' mg/dL:</b> '+nf(avg(a))+' nos últimos 7 dias contra '+nf(avg(b))+' nos 7 dias anteriores.');
+  }
+  if(s.n>=5&&s.cv>36)push('warn','<b>Variação alta:</b> o coeficiente de variação é '+nf(s.cv)+'%. Valores até 36% indicam glicemia mais estável.');
+  return out;
+}
+
+function a1cCard(all){
+  const now=Date.now(),L=all.filter(r=>r.t>=now-90*86400000);
+  let h='<div class="card"><h2>Hemoglobina glicada (HbA1c)</h2>';
+  if(L.length<8)return h+'<p class="sub" style="margin:0">Para estimar a HbA1c, registre pelo menos 8 medições nos últimos 90 dias. Você tem '+L.length+'.</p></div>';
+  const m=avg(L),a=(m+46.7)/28.7,days=new Set(L.map(r=>dkey(r.t))).size;
+  const cat=a<5.7?'Faixa normal':a<6.5?'Faixa de pré-diabetes':'Faixa de diabetes';
+  const P=v=>((Math.min(11,Math.max(4,v))-4)/7*100);
+  h+='<p class="sub">Estimada com a média das suas medições dos últimos 90 dias, período que a HbA1c costuma refletir.</p>'+
+    '<div class="a1c"><span class="big num">'+nf(a,1)+'%</span><span class="cat">'+cat+'</span></div>'+
+    '<div class="sc2" aria-hidden="true"><div class="track"><span class="s-ok" style="flex:1.7"></span><span class="s-high" style="flex:.8"></span><span class="s-vhigh" style="flex:4.5"></span></div><div class="mk" style="left:'+P(a)+'%"></div>'+
+    '<span class="tk" style="left:'+P(5.7)+'%">5,7</span><span class="tk" style="left:'+P(6.5)+'%">6,5</span><span class="tk" style="left:'+P(8)+'%">8</span></div>'+
+    '<p class="hint" style="margin:6px 0 14px">Base: '+L.length+' medições em '+days+' dias, média de '+nf(m)+' mg/dL. Meta usual para quem tem diabetes: abaixo de 7%.</p>';
+  const blocks=[['Últimos 30 dias',0,30],['31 a 60 dias atrás',30,60],['61 a 90 dias atrás',60,90]].map(b=>{
+    const a2=L.filter(r=>r.t<=now-b[1]*86400000&&r.t>now-b[2]*86400000);
+    return{l:b[0],n:a2.length,a:a2.length>=2?(avg(a2)+46.7)/28.7:null};
+  });
+  if(blocks.filter(b=>b.a!==null).length>=2){
+    h+='<div class="bars">'+blocks.map(b=>'<div class="br"><div class="nm">'+b.l+'<small>'+b.n+(b.n===1?' medição':' medições')+'</small></div><div class="tr">'+(b.a!==null?'<div class="fill" style="background:var(--accent);width:'+P(b.a)+'%"></div>':'')+'</div><div class="val num">'+(b.a!==null?nf(b.a,1)+'%':'—')+'</div></div>').join('')+'</div>';
+  }
+  return h+'<p class="foot" style="padding:12px 0 0">É uma estimativa feita com glicemia de ponta de dedo. Só o exame de laboratório mede a HbA1c de fato.</p></div>';
+}
+const LEG='<div class="legend"><span><i class="s-ok"></i>Na meta</span><span><i class="s-low"></i>Baixa</span><span><i class="s-high"></i>Alta</span><span>Passe o dedo ou o mouse sobre o gráfico para ver cada medição</span></div>';
+function renderCharts(){
+  const body=$('#gBody');
+  if(!readings.length){
+    body.innerHTML='<div class="card empty"><h3>Os gráficos aparecem com suas medições</h3><p>Registre algumas glicemias ou veja um exemplo preenchido.</p><div class="acts"><button class="btn small" data-go="registrar" type="button">Registrar agora</button><button class="btn ghost" data-ex="1" type="button">Ver com exemplos</button></div></div>';
+    return;
+  }
+  const [t0,t1]=range(gper,'','',readings);
+  const list=readings.filter(r=>r.t>=t0&&r.t<=t1).sort((a,b)=>a.t-b.t);
+  if(!list.length){body.innerHTML='<div class="card empty"><h3>Sem medições neste período</h3><p>Escolha um período maior.</p></div>';return}
+  const s=stats(list);
+  const tiles='<div class="tiles">'+
+    '<div class="tile"><div class="k">Média</div><div class="v num">'+nf(s.mean)+' <small>mg/dL</small></div><div class="n">'+(s.n+(s.n>1?' medições':' medição'))+'</div></div>'+
+    '<div class="tile"><div class="k">Na meta</div><div class="v num">'+nf(s.tir)+'<small>%</small></div><div class="n">70 a 180 mg/dL</div></div>'+
+    '<div class="tile"><div class="k">Variação</div><div class="v num">'+nf(s.cv)+'<small>%</small></div><div class="n">'+(s.cv<=36?'estável (até 36%)':'acima de 36%')+'</div></div>'+
+    '<div class="tile"><div class="k">Mín. e máx.</div><div class="v num">'+s.min+'<small> a </small>'+s.max+'</div><div class="n">'+s.n+' medições</div></div></div>';
+  const dist='<div class="card"><h2>Distribuição por faixa</h2><p class="sub">Quanto das medições caiu em cada faixa.</p><div class="dist" role="img" aria-label="'+BK.map(k=>BL[k]+' '+nf(s.c[k]/s.n*100)+'%').join(', ')+'">'+BK.filter(k=>s.c[k]).map(k=>'<span class="s-'+k+'" style="flex:'+s.c[k]+'"></span>').join('')+'</div><div class="dl">'+BK.map(k=>'<div><i class="s-'+k+'"></i><span>'+BL[k]+' <em>'+BR[k]+' mg/dL</em></span><em class="num">'+s.c[k]+'</em><b class="num">'+nf(s.c[k]/s.n*100)+'%</b></div>').join('')+'</div></div>';
+  const ctxRows=CTX.slice(1).map(c=>{const a=list.filter(r=>r.ctx===c[0]);return{label:c[1],avg:avg(a),n:a.length}}).filter(r=>r.n);
+  const perRows=[['Madrugada','0h–6h',0,6],['Manhã','6h–12h',6,12],['Tarde','12h–18h',12,18],['Noite','18h–24h',18,24]].map(p=>{const a=list.filter(r=>{const h=new Date(r.t).getHours();return h>=p[2]&&h<p[3]});return{label:p[0]+'<small>'+p[1]+'</small>',avg:avg(a),n:a.length}});
+  const bars='<div class="card"><h2>Média por momento</h2><p class="sub">A faixa tracejada é a meta de 70 a 180 mg/dL.</p>'+(ctxRows.length?barRows(ctxRows):'<p class="hint">Nenhuma medição com momento informado neste período.</p>')+'</div>'+
+    '<div class="card"><h2>Média por parte do dia</h2><p class="sub">Mostra em que horários sua glicemia costuma ficar mais alta.</p>'+barRows(perRows)+'</div>';
+  const ins=insights(readings,list,s);
+  const insHtml='<div class="card"><h2>Análise das leituras</h2><p class="sub">Calculada com as '+s.n+' medições do período.</p><ul class="insights">'+ins.map(i=>'<li class="'+i.tone+'"><i></i><span>'+i.t+'</span></li>').join('')+'</ul></div><p class="foot">Referências gerais, sem substituir a orientação médica. A HbA1c estimada usa a média das medições e só serve como indicação aproximada.</p>';
+  body.innerHTML=tiles+a1cCard(readings)+
+    '<div class="card"><h2>Evolução das medições</h2><p class="sub">Cada ponto é uma medição, colorido pela faixa.</p><div class="chart" id="c1"></div>'+LEG+'</div>'+
+    '<div class="card"><h2>Média por dia</h2><p class="sub">O ponto é a média do dia e a linha vai da menor à maior leitura.</p><div class="chart" id="c2"></div></div>'+
+    dist+bars+insHtml;
+  drawCharts(list,t0,t1);
+}
+let lastChart=null;
+function drawCharts(list,t0,t1){
+  lastChart=[list,t0,t1];
+  const c1=$('#c1'),c2=$('#c2');if(!c1||!c2)return;
+  const fmtT=r=>new Date(r.t).toLocaleDateString('pt-BR',{weekday:'short',day:'numeric',month:'short'})+' · '+hhmm(r.t);
+  timeChart(c1,{t0,t1,label:'Evolução de '+list.length+' medições de glicose',
+    points:list.map(r=>({x:r.t,y:r.v,cls:'d-'+band(r.v),tip:'<b class="num">'+r.v+' mg/dL</b> · '+BL[band(r.v)]+'<br>'+fmtT(r)+(r.ctx&&r.ctx!=='none'?'<br>'+CL[r.ctx]:'')})) });
+  const by=new Map();list.forEach(r=>{const k=dkey(r.t);if(!by.has(k))by.set(k,[]);by.get(k).push(r)});
+  const days=[...by.values()].map(a=>{const d=new Date(a[0].t);const x=new Date(d.getFullYear(),d.getMonth(),d.getDate(),12).getTime();const vs=a.map(r=>r.v);return{x,avg:avg(a),lo:Math.min(...vs),hi:Math.max(...vs),n:a.length}});
+  timeChart(c2,{t0,t1,strong:true,label:'Média diária de glicose',
+    points:days.map(d=>({x:d.x,y:d.avg,cls:'d-acc',tip:'<b class="num">'+nf(d.avg)+' mg/dL</b> média<br>'+new Date(d.x).toLocaleDateString('pt-BR',{weekday:'short',day:'numeric',month:'short'})+'<br>mín '+d.lo+' · máx '+d.hi+' · '+d.n+(d.n>1?' medições':' medição')})),
+    ranges:days.map(d=>({x:d.x,lo:d.lo,hi:d.hi}))});
+}
+let rzT;window.addEventListener('resize',()=>{clearTimeout(rzT);rzT=setTimeout(()=>{if(tab==='graficos'&&lastChart)drawCharts(...lastChart)},150)});
+
+/* ---------- render geral ---------- */
+let raf=0;
+function render(){cancelAnimationFrame(raf);raf=requestAnimationFrame(doRender)}
+function doRender(){
+  $('#exNotice').hidden=!readings.some(r=>r.ex);
+  if(tab==='registrar')renderRecent();
+  if(tab==='historico')renderHistory();
+  if(tab==='graficos')renderCharts();
+}
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button');if(!t)return;
+  if(t.dataset.go){setTab(t.dataset.go);return}
+  if(t.dataset.ex){loadSamples();return}
+  if(t.id==='exClear'){clearSamples();return}
+  if(t.id==='hReset'){
+    Object.assign(hf,{per:'all',ctx:'all',band:'all',ord:'desc',from:'',to:''});
+    $('#hCtx').value='all';$('#hBand').value='all';$('#hOrd').value='desc';$('#hFrom').value='';$('#hTo').value='';$('#hCustom').hidden=true;
+    document.querySelector('input[name=hper][value=all]').checked=true;render();return;
+  }
+  if(t.classList.contains('del')){
+    const row=t.closest('.row');
+    if(t.classList.contains('confirm')){removeReading(row.dataset.id);toast('Medição excluída');return}
+    t.classList.add('confirm');t.textContent='Confirmar?';
+    setTimeout(()=>{if(t.isConnected){t.classList.remove('confirm');t.textContent='Excluir'}},3000);
+  }
+});
+
+/* ---------- menu ---------- */
+const shownName=()=>userName||profName||'';
+function initials(n){const p=n.trim().split(/\s+/).filter(Boolean);return p.length?(p[0][0]+(p.length>1?p[p.length-1][0]:'')).toUpperCase():'?'}
+$('#mBands').innerHTML=BK.map(k=>'<div><i class="s-'+k+'"></i><span>'+BL[k]+'</span><em class="num">'+BR[k]+'</em><span></span></div>').join('');
+function openMenu(){
+  const n=shownName();$('#nm').value=n;$('#av').textContent=initials(n);
+  $('#mCount').textContent=readings.length+(readings.length===1?' medição registrada':' medições registradas');
+  $('#mWhere').textContent=col?'Na sua conta, de forma privada, com uma cópia neste aparelho.':'Neste aparelho.';
+  $('#scrim').hidden=false;$('#nm').focus();
+}
+function closeMenu(){$('#scrim').hidden=true;$('#gear').focus()}
+$('#gear').addEventListener('click',openMenu);
+$('#mClose').addEventListener('click',closeMenu);
+$('#scrim').addEventListener('click',e=>{if(e.target.id==='scrim')closeMenu()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#scrim').hidden)closeMenu()});
+$('#nm').addEventListener('input',e=>{$('#av').textContent=initials(e.target.value)});
+function saveName(){
+  const n=$('#nm').value.trim().replace(/\s+/g,' ');
+  userName=n;try{localStorage.setItem(LSN,n)}catch(e){}
+  if(col)col.doc('profile').set({kind:'profile',name:n}).catch(dbErr);
+  $('#av').textContent=initials(n);toast(n?'Nome salvo':'Nome removido');
+}
+$('#nmSave').addEventListener('click',saveName);
+$('#nm').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveName()}});
+
+$('#bkCopy').addEventListener('click',async()=>{
+  const txt=JSON.stringify({app:'controlglicose',v:1,readings:readings.filter(r=>!r.ex).map(r=>({t:r.t,v:r.v,ctx:r.ctx||'none',note:r.note||''}))});
+  $('#bkBox').value=txt;
+  try{await navigator.clipboard.writeText(txt);toast('Dados copiados')}catch(e){$('#bkBox').select();toast('Selecione e copie o texto da caixa')}
+});
+$('#bkRestore').addEventListener('click',()=>{
+  let d;try{d=JSON.parse($('#bkBox').value)}catch(e){toast('Texto inválido. Cole os dados copiados.');return}
+  const a=d&&Array.isArray(d.readings)?d.readings:null;
+  if(!a){toast('Não encontrei medições nesse texto.');return}
+  const have=new Set(readings.map(r=>r.t+'-'+r.v));let n=0;
+  a.forEach(r=>{
+    if(!r||typeof r.t!=='number'||typeof r.v!=='number'||r.v<20||r.v>600||have.has(r.t+'-'+r.v))return;
+    have.add(r.t+'-'+r.v);n++;
+    addReading({id:uid()+n,t:r.t,v:Math.round(r.v),ctx:CL[r.ctx]?r.ctx:'none',note:String(r.note||'').slice(0,120),ex:false});
+  });
+  $('#bkBox').value='';toast(n?n+(n>1?' medições restauradas':' medição restaurada'):'Nenhuma medição nova nesse texto');
+  $('#mCount').textContent=readings.length+(readings.length===1?' medição registrada':' medições registradas');
+});
+
+readings=loadLocal();
+const h=location.hash.slice(1);
+setTab(TABS.includes(h)?h:'registrar',true);
+onVal();
+initDb();
+})();
+</script>
+<script>
+if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})})}
+</script>
+</body>
+</html>
