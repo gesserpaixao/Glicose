@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="Glicose">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.webmanifest">
+<script src="firebase-config.js"></script>
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icon-192.png">
 <style>
@@ -367,6 +368,11 @@ select.field{appearance:auto}
         <dt>Onde ficam os dados</dt><dd id="mWhere">Neste aparelho.</dd>
       </dl>
     </div>
+    <div id="acctBox" hidden>
+      <h3>Conta</h3>
+      <p class="hint" id="acctTxt" style="margin:0 0 8px"></p>
+      <button class="btn ghost small" id="acctBtn" type="button"></button>
+    </div>
     <div>
       <h3>Cópia de segurança</h3>
       <p class="hint" style="margin:0 0 8px">Copie seus dados e guarde em um lugar seguro, como o app Notas. Para restaurar ou trazer dados de outro aparelho, cole o texto abaixo.</p>
@@ -389,6 +395,96 @@ select.field{appearance:auto}
   </div>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
+
+<style>
+.auth{position:fixed;inset:0;z-index:60;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:auto;
+  padding:calc(env(safe-area-inset-top,0px) + 16px) max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 16px) max(16px,env(safe-area-inset-left,0px))}
+.authcard{width:min(420px,100%);display:flex;flex-direction:column;gap:10px}
+.authcard .lbl{margin:6px 0 0}
+.authcard .link{align-self:flex-start;font-size:14px}
+.hint.ok{color:var(--ok)}
+</style>
+<div class="auth" id="auth" hidden>
+  <form class="card authcard" id="authForm" novalidate>
+    <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3C16 3 6 14.2 6 20.5a10 10 0 0 0 20 0C26 14.2 16 3 16 3Z" fill="var(--accent)"/><path d="M10.5 21.5h3l2-4.5 2.5 8 2-3.5h2" fill="none" stroke="var(--on-accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>ControlGlicose</div>
+    <p class="sub" style="margin:0">Entre para guardar suas medições na sua conta. Elas continuam salvas se você trocar de celular.</p>
+    <label class="lbl" for="aEmail">E-mail</label>
+    <input class="field" id="aEmail" type="email" autocomplete="email" inputmode="email" autocapitalize="none">
+    <label class="lbl" for="aPass">Senha</label>
+    <input class="field" id="aPass" type="password" autocomplete="current-password" placeholder="Pelo menos 6 caracteres">
+    <div class="hint err" id="aMsg" hidden role="status"></div>
+    <button class="btn" id="aIn" type="submit">Entrar</button>
+    <button class="btn ghost" id="aUp" type="button" style="width:100%">Criar conta</button>
+    <button class="link" id="aForgot" type="button">Esqueci minha senha</button>
+    <button class="link" id="aSkip" type="button">Usar sem conta, só neste aparelho</button>
+  </form>
+</div>
+<script>
+/* Ponte com o Firebase: imita a API de armazenamento que o app já usa. Sem configuração, o app funciona só no aparelho. */
+(function(){
+  var F=window.__fb={};F.ready=new Promise(function(r){F.resolve=r});
+  window.claude={use:function(n){return F.ready.then(function(api){return api?(api[n]||null):null})}};
+  F.acct={configured:false,email:null,signIn:function(){},signOut:function(){}};
+  var V='10.14.1',B='https://www.gstatic.com/firebasejs/'+V+'/';
+  var $=function(s){return document.querySelector(s)};
+  var ERR={'auth/invalid-credential':'E-mail ou senha incorretos.','auth/wrong-password':'E-mail ou senha incorretos.','auth/user-not-found':'E-mail ou senha incorretos.',
+    'auth/email-already-in-use':'Já existe uma conta com esse e-mail. Toque em Entrar.','auth/weak-password':'Use uma senha com pelo menos 6 caracteres.',
+    'auth/invalid-email':'E-mail inválido.','auth/missing-password':'Digite a senha.','auth/network-request-failed':'Sem conexão com a internet.',
+    'auth/too-many-requests':'Muitas tentativas. Aguarde um pouco e tente de novo.'};
+  function msg(t,ok){var m=$('#aMsg');m.textContent=t;m.className='hint '+(ok?'ok':'err');m.hidden=!t}
+  async function start(){
+    var cfg=window.FIREBASE_CONFIG;
+    if(!cfg||!cfg.apiKey||/^COLE/.test(cfg.apiKey)){F.resolve(null);return}
+    F.acct.configured=true;
+    var A,Au,Fs;
+    try{[A,Au,Fs]=await Promise.all([import(B+'firebase-app.js'),import(B+'firebase-auth.js'),import(B+'firebase-firestore.js')])}
+    catch(e){F.resolve(null);return}
+    var app=A.initializeApp(cfg),auth=Au.getAuth(app);
+    var db=Fs.initializeFirestore(app,{localCache:Fs.persistentLocalCache({tabManager:Fs.persistentMultipleTabManager()})});
+    var resolved=false;
+    function wrap(s){return{empty:s.empty,docs:s.docs.map(function(d){return{id:d.id,data:function(){return d.data()}}}),metadata:{fromCache:s.metadata.fromCache,hasPendingWrites:s.metadata.hasPendingWrites}}}
+    function finish(u){
+      resolved=true;F.acct.email=u.email;
+      F.resolve({
+        db:{collection:function(){return{
+          doc:function(id){var ref=Fs.doc(db,'users',u.uid,'readings',id);return{set:function(d){return Fs.setDoc(ref,d)},delete:function(){return Fs.deleteDoc(ref)}}},
+          onSnapshot:function(next,err){return Fs.onSnapshot(Fs.collection(db,'users',u.uid,'readings'),{includeMetadataChanges:true},function(s){next(wrap(s))},err)}
+        }}},
+        user:{id:async function(){return u.uid},me:async function(){return{id:u.uid,name:u.displayName||''}}}
+      });
+    }
+    function show(){$('#auth').hidden=false;msg('')}
+    F.acct.signIn=show;
+    F.acct.signOut=async function(){
+      try{await Au.signOut(auth)}catch(e){}
+      try{localStorage.removeItem('controlglicose.v1');localStorage.removeItem('controlglicose.nome')}catch(e){}
+      location.reload();
+    };
+    Au.onAuthStateChanged(auth,function(u){
+      if(u){$('#auth').hidden=true;if(!resolved)finish(u);else if(F.acct.email!==u.email)location.reload()}
+      else if(!resolved)show();
+    });
+    async function go(mode){
+      var email=$('#aEmail').value.trim(),pw=$('#aPass').value;
+      if(!email){msg('Digite seu e-mail.');return}
+      if(!pw){msg('Digite a senha.');return}
+      $('#aIn').disabled=$('#aUp').disabled=true;msg('');
+      try{mode==='up'?await Au.createUserWithEmailAndPassword(auth,email,pw):await Au.signInWithEmailAndPassword(auth,email,pw)}
+      catch(e){msg(ERR[e&&e.code]||'Não foi possível entrar. Tente de novo.')}
+      $('#aIn').disabled=$('#aUp').disabled=false;
+    }
+    $('#authForm').addEventListener('submit',function(e){e.preventDefault();go('in')});
+    $('#aUp').addEventListener('click',function(){go('up')});
+    $('#aForgot').addEventListener('click',async function(){
+      var email=$('#aEmail').value.trim();if(!email){msg('Digite seu e-mail acima e toque de novo.');return}
+      try{await Au.sendPasswordResetEmail(auth,email);msg('Enviamos um e-mail para redefinir a senha. Veja também a caixa de spam.',true)}
+      catch(e){msg(ERR[e&&e.code]||'Não foi possível enviar o e-mail.')}
+    });
+    $('#aSkip').addEventListener('click',function(){$('#auth').hidden=true;if(!resolved){resolved=true;F.resolve(null)}});
+  }
+  start();
+})();
+</script>
 
 <script src="pdf-lib.min.js"></script>
 <script>
@@ -1052,8 +1148,15 @@ function openMenu(){
   const n=shownName();$('#nm').value=n;$('#av').textContent=initials(n);
   $('#mCount').textContent=readings.length+(readings.length===1?' medição registrada':' medições registradas');
   $('#mWhere').textContent=col?'Na sua conta, de forma privada, com uma cópia neste aparelho.':'Neste aparelho.';
+  const A=window.__fb&&window.__fb.acct;
+  $('#acctBox').hidden=!(A&&A.configured);
+  if(A&&A.configured){
+    $('#acctTxt').textContent=A.email?'Conectado como '+A.email+'. Suas medições ficam salvas na sua conta.':'Sem conta: as medições ficam só neste aparelho.';
+    $('#acctBtn').textContent=A.email?'Sair da conta':'Entrar na conta';
+  }
   $('#scrim').hidden=false;$('#nm').focus();
 }
+$('#acctBtn').addEventListener('click',()=>{const A=window.__fb&&window.__fb.acct;if(!A)return;closeMenu();if(A.email)A.signOut();else A.signIn()});
 function closeMenu(){$('#scrim').hidden=true;$('#gear').focus()}
 $('#gear').addEventListener('click',openMenu);
 $('#mClose').addEventListener('click',closeMenu);
